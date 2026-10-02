@@ -20,7 +20,9 @@ The module uses:
 - Display playback position and duration
 - Seek through the current track
 - Display the mpv playlist as an expandable queue
+- Display kew's MPRIS TrackList as an expandable queue
 - Select an item from the mpv queue and start playback
+- Select a kew queue item through MPRIS `GoTo`
 - Automatically pause the previous source when switching players
 - Optimistic play/pause UI updates for responsive controls
 
@@ -64,6 +66,11 @@ The backend collects:
 - artwork URL
 - playback position
 - track duration
+
+For kew, the backend also reads `org.mpris.MediaPlayer2.TrackList.Tracks` and
+`GetTracksMetadata`, then selects queue entries with `GoTo`. Other MPRIS
+players continue to use the existing player controls, and mpv continues to use
+its IPC playlist.
 
 Only players in `Playing` or `Paused` states are considered.
 
@@ -136,6 +143,7 @@ play-pause
 previous
 next
 play-index
+play-track
 seek
 select-source
 ```
@@ -238,6 +246,7 @@ cover-art-auto=exact
 - Quickshell
 - Python 3
 - `playerctl`
+- Python D-Bus bindings (`dbus-python`, packaged as `python-dbus` on Arch) for kew TrackList access
 - mpv
 - An MPRIS-compatible media player
 
