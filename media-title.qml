@@ -322,7 +322,7 @@ Item {
               enabled: !modelData.current
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
-              onClicked: root.playIndex(modelData.index)
+              onClicked: modelData.trackId ? root.playTrack(modelData.trackId) : root.playIndex(modelData.index)
             }
           }
         }
@@ -356,6 +356,9 @@ Item {
   }
   function playIndex(index) {
     send("play-index", [index])
+  }
+  function playTrack(trackId) {
+    send("play-track", [trackId, root.media.source])
   }
   function seek(fraction) {
     if (root.media.duration > 0) send("seek", [fraction * root.media.duration])
