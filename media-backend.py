@@ -5,6 +5,7 @@ import socket
 import subprocess
 import sys
 import time
+import dbus
 
 SOCKET = os.environ.get("MPV_SOCKET", "/tmp/mpv-socket")
 SELECTION_FILE = os.environ.get("MPV_MEDIA_SELECTION", "/tmp/mpv-media-selected")
@@ -250,6 +251,52 @@ def get_mpv_queue():
   return items, current, path
 
 
+def get_mpris_tracklist(player_name):
+  """Read a TrackList-capable player's ordered tracks and current track ID."""
+  try:
+    bus_name = player_name
+    if not bus_name.startswith("org.mpris.MediaPlayer2."):
+      bus_name = "org.mpris.MediaPlayer2." + bus_name
+    obj = dbus.SessionBus().get_object(bus_name, "/org/mpris/MediaPlayer2")
+    properties = dbus.Interface(obj, "org.freedesktop.DBus.Properties")
+    tracklist = dbus.Interface(obj, "org.mpris.MediaPlayer2.TrackList")
+    track_ids = properties.Get("org.mpris.MediaPlayer2.TrackList", "Tracks")
+    current_metadata = properties.Get("org.mpris.MediaPlayer2.Player", "Metadata")
+    current_id = str(current_metadata.get("mpris:trackid", ""))
+    metadata_list = tracklist.GetTracksMetadata(track_ids)
+    items = []
+    current_index = -1
+    for index, metadata in enumerate(metadata_list):
+      track_id = str(metadata.get("mpris:trackid", track_ids[index]))
+      title = str(metadata.get("xesam:title", ""))
+      url = str(metadata.get("xesam:url", ""))
+      if not title:
+        title = os.path.basename(url.split("?", 1)[0]) or url or "Unknown track"
+      is_current = track_id == current_id
+      if is_current:
+        current_index = index
+      items.append({
+        "index": index, "trackId": track_id, "title": title,
+        "path": url, "current": is_current
+      })
+    return items, current_index
+  except Exception:
+    return [], -1
+
+
+def mpris_goto(player_name, track_id):
+  try:
+    bus_name = player_name
+    if not bus_name.startswith("org.mpris.MediaPlayer2."):
+      bus_name = "org.mpris.MediaPlayer2." + bus_name
+    obj = dbus.SessionBus().get_object(bus_name, "/org/mpris/MediaPlayer2")
+    tracklist = dbus.Interface(obj, "org.mpris.MediaPlayer2.TrackList")
+    tracklist.GoTo(dbus.ObjectPath(track_id))
+    return True
+  except Exception:
+    return False
+
+
 def to_seconds(value):
   try:
     return max(0.0, float(value) / 1000000)
@@ -275,6 +322,8 @@ def build_state():
     queue, playlist_pos, mpv_path = get_mpv_queue()
     if not art:
       art = find_art(mpv_path)
+  elif chosen["playerName"].split(".")[0].lower() == "kew":
+    queue, playlist_pos = get_mpris_tracklist(chosen["playerName"])
 
   sources = []
   seen = set()
@@ -304,7 +353,7 @@ def build_state():
     "path": "",
     "art": art,
     "queue": queue,
-    "hasQueue": is_mpv and len(queue) > 0,
+    "hasQueue": len(queue) > 0,
     "source": chosen["playerName"],
     "isLocal": is_local_player(chosen["playerName"]),
     "sources": sources,
@@ -347,6 +396,9 @@ def daemon():
           if state.get("hasQueue"):
             mpv_send(["playlist-play-index", int(args[0])])
             mpv_send(["set_property", "pause", False])
+        elif action == "play-track":
+          if len(args) >= 2:
+            mpris_goto(args[1], args[0])
         elif action == "seek":
           do_seek(float(args[0]))
         elif action == "play-pause":
@@ -366,6 +418,8 @@ def command_once(action, args):
     mpv_send(["playlist-play-index", int(args[0])])
     mpv_send(["set_property", "pause", False])
     return 0
+  if action == "play-track" and len(args) == 2:
+    return 0 if mpris_goto(args[1], args[0]) else 1
   if action == "seek" and len(args) == 1:
     return 0 if do_seek(float(args[0])) is not None else 1
   if action in ("play-pause", "previous", "next"):
@@ -384,4 +438,4 @@ if __name__ == "__main__":
   elif len(sys.argv) > 1 and sys.argv[1] == "command" and len(sys.argv) > 2:
     sys.exit(command_once(sys.argv[2], sys.argv[3:]))
   else:
-    print("usage: media-backend.py daemon | state | command <play-pause|previous|next|play-index|seek|select-source>")
+    print("usage: media-backend.py daemon | state | command <play-pause|previous|next|play-index|play-track|seek|select-source>")
